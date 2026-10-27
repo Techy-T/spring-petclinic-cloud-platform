@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+
+target
+
+*.log
+
+README.md
+
+terraform
+kubernetes
+monitoring
+docs
