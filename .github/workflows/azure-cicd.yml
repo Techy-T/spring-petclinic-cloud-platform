@@ -147,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VALUES_FILE="gitops/apps/petclinic/values-prod.yaml"
+          VALUES_FILE="gitops/apps/petclinic/values-dev.yaml"
 
           sed -i -E \
             "s|^  tag:.*$|  tag: \"${IMAGE_TAG}\"|" \
@@ -171,5 +171,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "deploy: petclinic ${IMAGE_TAG}"
+          git commit -m "deploy(dev): petclinic ${IMAGE_TAG}"
           git push origin main
