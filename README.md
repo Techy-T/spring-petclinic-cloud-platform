@@ -1,181 +1,615 @@
-# Spring PetClinic Sample Application [![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/maven-build.yml)[![Build Status](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml/badge.svg)](https://github.com/spring-projects/spring-petclinic/actions/workflows/gradle-build.yml)
+# Spring PetClinic Cloud Platform on Azure
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/spring-projects/spring-petclinic) [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://github.com/codespaces/new?hide_repo_select=true&ref=main&repo=7517918)
+A production-style cloud engineering project that provisions and operates a containerized Spring Boot application on **Microsoft Azure** using **Terraform, Azure Kubernetes Service, Azure Container Registry, Docker, GitHub Actions, Prometheus, Grafana, Helm, and Kubernetes**.
 
-## Understanding the Spring Petclinic application with a few diagrams
+This repository focuses on the **application platform and Azure infrastructure layer**: provisioning cloud resources, building multi-architecture container images, deploying to AKS, configuring autoscaling and routing, integrating monitoring, and automating CI with GitHub Actions.
 
-See the presentation here:  
-[Spring Petclinic Sample Application (legacy slides)](https://speakerdeck.com/michaelisvy/spring-petclinic-sample-application?slide=20)
+The GitOps continuous delivery layer is maintained separately in the companion GitOps repository.
 
-> **Note:** These slides refer to a legacy, pre–Spring Boot version of Petclinic and may not reflect the current Spring Boot–based implementation.  
-> For up-to-date information, please refer to this repository and its documentation.
+---
 
+## Architecture
 
-## Run Petclinic locally
+```mermaid
+flowchart TD
+    DEV[Developer] --> GH[GitHub Repository]
 
-Spring Petclinic is a [Spring Boot](https://spring.io/guides/gs/spring-boot) application built using [Maven](https://spring.io/guides/gs/maven/) or [Gradle](https://spring.io/guides/gs/gradle/).
-Java 17 or later is required for the build, and the application can run with Java 17 or newer.
+    GH --> CI[GitHub Actions]
 
-You first need to clone the project locally:
+    CI --> BUILD[Maven Build & Test]
+    BUILD --> SCAN[Trivy Security Scan]
+    SCAN --> DOCKER[Docker Buildx]
 
-```bash
-git clone https://github.com/spring-projects/spring-petclinic.git
-cd spring-petclinic
-```
-If you are using Maven, you can start the application on the command-line as follows:
+    DOCKER -->|OIDC| ACR[Azure Container Registry]
 
-```bash
-./mvnw spring-boot:run
-```
-With Gradle, the command is as follows:
+    TF[Terraform] --> RG[Resource Group]
+    TF --> VNET[Virtual Network]
+    TF --> SUBNET[AKS Subnet]
+    TF --> AKS[Azure Kubernetes Service]
+    TF --> ACR
+    TF --> KV[Azure Key Vault]
+    TF --> ID[Managed Identities]
 
-```bash
-./gradlew bootRun
-```
+    ACR --> AKS
 
-You can then access the Petclinic at <http://localhost:8080/>.
+    AKS --> APP[Spring PetClinic]
+    AKS --> GATEWAY[Gateway API / Istio]
+    AKS --> HPA[Horizontal Pod Autoscaler]
+    AKS --> PDB[PodDisruptionBudget]
+    AKS --> MON[Prometheus / Grafana]
 
-<img width="1042" alt="petclinic-screenshot" src="https://cloud.githubusercontent.com/assets/838318/19727082/2aee6d6c-9b8e-11e6-81fe-e889a5ddfded.png">
-
-You can, of course, run Petclinic in your favorite IDE.
-See below for more details.
-
-## Building a Container
-
-There is no `Dockerfile` in this project. You can build a container image (if you have a docker daemon) using the Spring Boot build plugin:
-
-```bash
-./mvnw spring-boot:build-image
+    APP --> KV
 ```
 
-## Running the Container Image
+---
 
-```bash
-docker images | grep petclinic
-docker run -p 8080:8080 docker.io/library/spring-petclinic:latest
+## Project Goals
+
+The goal of this project was to build a cloud environment that demonstrates practical experience across:
+
+- Azure infrastructure provisioning
+- Kubernetes operations
+- Container build and registry workflows
+- CI automation
+- Application routing
+- Autoscaling
+- Monitoring and observability
+- Cloud identity
+- Secrets management
+- Infrastructure troubleshooting
+- Architecture trade-offs
+
+Spring PetClinic is used as the application workload, while the main focus is the surrounding cloud platform.
+
+---
+
+## Azure Infrastructure
+
+Azure infrastructure is provisioned using Terraform.
+
+Core resources include:
+
+- Azure Resource Group
+- Azure Virtual Network
+- AKS subnet
+- Azure Kubernetes Service
+- Azure Container Registry
+- Azure Key Vault
+- User-assigned managed identities
+- Azure RBAC role assignments
+- Federated identity credentials
+
+Terraform provides a reproducible source of truth for the Azure environment.
+
+---
+
+## Infrastructure as Code
+
+Terraform manages the Azure platform from:
+
+```text
+terraform/
+└── azure/
 ```
 
-## In case you find a bug/suggested improvement for Spring Petclinic
+The infrastructure includes:
 
-Our issue tracker is available [here](https://github.com/spring-projects/spring-petclinic/issues).
-
-## Database configuration
-
-In its default configuration, Petclinic uses an in-memory database (H2) which
-gets populated at startup with data. The h2 console is exposed at `http://localhost:8080/h2-console`,
-and it is possible to inspect the content of the database using the `jdbc:h2:mem:<uuid>` URL. The UUID is printed at startup to the console.
-
-A similar setup is provided for MySQL and PostgreSQL if a persistent database configuration is needed. Note that whenever the database type changes, the app needs to run with a different profile: `spring.profiles.active=mysql` for MySQL or `spring.profiles.active=postgres` for PostgreSQL. See the [Spring Boot documentation](https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html#howto.properties-and-configuration.set-active-spring-profiles) for more detail on how to set the active profile.
-
-You can start MySQL or PostgreSQL locally with whatever installer works for your OS or use docker:
-
-```bash
-docker run -e MYSQL_USER=petclinic -e MYSQL_PASSWORD=petclinic -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=petclinic -p 3306:3306 mysql:9.7
+```text
+Resource Group
+     ↓
+Virtual Network
+     ↓
+AKS Subnet
+     ↓
+Azure Kubernetes Service
+     ↓
+Azure Container Registry
 ```
 
-or
+Additional security resources include:
 
-```bash
-docker run -e POSTGRES_USER=petclinic -e POSTGRES_PASSWORD=petclinic -e POSTGRES_DB=petclinic -p 5432:5432 postgres:18.4
+```text
+Azure Key Vault
+     ↓
+User-Assigned Managed Identity
+     ↓
+Federated Identity Credential
+     ↓
+Azure RBAC
 ```
 
-Further documentation is provided for [MySQL](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources/db/mysql/petclinic_db_setup_mysql.txt)
-and [PostgreSQL](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources/db/postgres/petclinic_db_setup_postgres.txt).
+---
 
-Instead of vanilla `docker` you can also use the provided `docker-compose.yml` file to start the database containers. Each one has a service named after the Spring profile:
+## Azure Kubernetes Service
 
-```bash
-docker compose up mysql
+Spring PetClinic runs on Azure Kubernetes Service.
+
+The Kubernetes deployment includes:
+
+- Deployment
+- Service
+- Readiness probes
+- Liveness probes
+- Resource requests and limits
+- Horizontal Pod Autoscaler
+- PodDisruptionBudget
+- Gateway API
+- Istio application routing
+- Prometheus ServiceMonitor
+- Azure Key Vault CSI integration
+
+---
+
+## Containerization
+
+The application is packaged as a Docker image.
+
+A multi-stage Docker build separates the Maven build environment from the runtime image.
+
+The final container runs with a JRE rather than the full development environment.
+
+The container also runs as a non-root user.
+
+---
+
+## Multi-Architecture Container Builds
+
+One of the major challenges in the project was a CPU architecture mismatch between the locally built Docker image and the AKS worker node.
+
+The initial deployment failed with:
+
+```text
+exec format error
 ```
 
-or
+The application image was built for AMD64 while the AKS node required ARM64 compatibility.
 
-```bash
-docker compose up postgres
+The Docker configuration was redesigned to support multi-platform builds using Docker Buildx.
+
+Supported architectures include:
+
+```text
+linux/amd64
+linux/arm64
 ```
 
-## Test Applications
+This allows the same CI process to build images compatible with different Kubernetes worker architectures.
 
-At development time we recommend you use the test applications set up as `main()` methods in `PetClinicIntegrationTests` (using the default H2 database and also adding Spring Boot Devtools), `MySqlTestApplication` and `PostgresIntegrationTests`. These are set up so that you can run the apps in your IDE to get fast feedback and also run the same classes as integration tests against the respective database. The MySql integration tests use Testcontainers to start the database in a Docker container, and the Postgres tests use Docker Compose to do the same thing.
+---
 
-## Compiling the CSS
+## Continuous Integration
 
-There is a `petclinic.css` in `src/main/resources/static/resources/css`. It was generated from the `petclinic.scss` source, combined with the [Bootstrap](https://getbootstrap.com/) library. If you make changes to the `scss`, or upgrade Bootstrap, you will need to re-compile the CSS resources using the Maven profile "css", i.e. `./mvnw package -P css`. There is no build profile for Gradle to compile the CSS.
+GitHub Actions handles the application CI workflow.
 
-## Working with Petclinic in your IDE
+The pipeline performs:
 
-### Prerequisites
+```text
+Checkout
+   ↓
+Maven Build
+   ↓
+Tests
+   ↓
+Docker Buildx
+   ↓
+Trivy Security Scan
+   ↓
+Push Image to Azure Container Registry
+```
 
-The following items should be installed in your system:
+Images are tagged using the Git commit SHA rather than relying on `latest`.
 
-- Java 17 or newer (full JDK, not a JRE)
-- [Git command line tool](https://help.github.com/articles/set-up-git)
-- Your preferred IDE
-  - Eclipse with the m2e plugin. Note: when m2e is available, there is a m2 icon in `Help -> About` dialog. If m2e is
-  not there, follow the installation process [here](https://www.eclipse.org/m2e/)
-  - [Spring Tools Suite](https://spring.io/tools) (STS)
-  - [IntelliJ IDEA](https://www.jetbrains.com/idea/)
-  - [VS Code](https://code.visualstudio.com)
+Example:
 
-### Steps
+```text
+acrpetclinickydj7o.azurecr.io/petclinic:<git-sha>
+```
 
-1. On the command line run:
+This improves release traceability and allows exact application versions to be identified.
 
-    ```bash
-    git clone https://github.com/spring-projects/spring-petclinic.git
-    ```
+---
 
-1. Inside Eclipse or STS:
+## Passwordless GitHub Authentication
 
-    Open the project via `File -> Import -> Maven -> Existing Maven project`, then select the root directory of the cloned repo.
+GitHub Actions authenticates to Azure using **OpenID Connect**.
 
-    Then either build on the command line `./mvnw generate-resources` or use the Eclipse launcher (right-click on project and `Run As -> Maven install`) to generate the CSS. Run the application's main method by right-clicking on it and choosing `Run As -> Java Application`.
+```text
+GitHub Actions
+      ↓
+GitHub OIDC Token
+      ↓
+Microsoft Entra ID
+      ↓
+User-Assigned Managed Identity
+      ↓
+Azure Resources
+```
 
-1. Inside IntelliJ IDEA:
+No long-lived Azure client secret is required in GitHub Actions.
 
-    In the main menu, choose `File -> Open` and select the Petclinic [pom.xml](pom.xml). Click on the `Open` button.
+The CI identity is granted only the permissions needed to publish application images and interact with the required Azure resources.
 
-    - CSS files are generated from the Maven build. You can build them on the command line `./mvnw generate-resources` or right-click on the `spring-petclinic` project then `Maven -> Generates sources and Update Folders`.
+---
 
-    - A run configuration named `PetClinicApplication` should have been created for you if you're using a recent Ultimate version. Otherwise, run the application by right-clicking on the `PetClinicApplication` main class and choosing `Run 'PetClinicApplication'`.
+## Azure Container Registry
 
-1. Navigate to the Petclinic
+Azure Container Registry stores application images produced by GitHub Actions.
 
-    Visit [http://localhost:8080](http://localhost:8080) in your browser.
+The registry provides:
 
-## Looking for something in particular?
+- Private image storage
+- AKS integration
+- Immutable SHA-based versions
+- Multi-architecture images
+- Controlled Azure RBAC access
 
-|Spring Boot Configuration | Class or Java property files  |
-|--------------------------|---|
-|The Main Class | [PetClinicApplication](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/java/org/springframework/samples/petclinic/PetClinicApplication.java) |
-|Properties Files | [application.properties](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/resources) |
-|Caching | [CacheConfiguration](https://github.com/spring-projects/spring-petclinic/blob/main/src/main/java/org/springframework/samples/petclinic/system/CacheConfiguration.java) |
+AKS is configured with permission to pull images from ACR.
 
-## Interesting Spring Petclinic branches and forks
+---
 
-The Spring Petclinic "main" branch in the [spring-projects](https://github.com/spring-projects/spring-petclinic)
-GitHub org is the "canonical" implementation based on Spring Boot and Thymeleaf. There are
-[quite a few forks](https://spring-petclinic.github.io/docs/forks.html) in the GitHub org
-[spring-petclinic](https://github.com/spring-petclinic). If you are interested in using a different technology stack to implement the Pet Clinic, please join the community there.
+## Application Routing
 
-## Interaction with other open-source projects
+The application uses the Kubernetes **Gateway API** together with Azure's Istio-based application routing capability.
 
-One of the best parts about working on the Spring Petclinic application is that we have the opportunity to work in direct contact with many Open Source projects. We found bugs/suggested improvements on various topics such as Spring, Spring Data, Bean Validation and even Eclipse! In many cases, they've been fixed/implemented in just a few days.
-Here is a list of them:
+The routing layer includes:
 
-| Name | Issue |
-|------|-------|
-| Spring JDBC: simplify usage of NamedParameterJdbcTemplate | [SPR-10256](https://github.com/spring-projects/spring-framework/issues/14889) and [SPR-10257](https://github.com/spring-projects/spring-framework/issues/14890) |
-| Bean Validation / Hibernate Validator: simplify Maven dependencies and backward compatibility |[HV-790](https://hibernate.atlassian.net/browse/HV-790) and [HV-792](https://hibernate.atlassian.net/browse/HV-792) |
-| Spring Data: provide more flexibility when working with JPQL queries | [DATAJPA-292](https://github.com/spring-projects/spring-data-jpa/issues/704) |
+- GatewayClass
+- Gateway
+- HTTPRoute
+- Kubernetes Service
 
-## Contributing
+The request flow is:
 
-The [issue tracker](https://github.com/spring-projects/spring-petclinic/issues) is the preferred channel for bug reports, feature requests and submitting pull requests.
+```text
+External Request
+      ↓
+Azure Application Routing
+      ↓
+Istio Gateway
+      ↓
+Gateway API
+      ↓
+HTTPRoute
+      ↓
+PetClinic Service
+      ↓
+PetClinic Pod
+```
 
-For pull requests, editor preferences are available in the [editor config](.editorconfig) for easy use in common text editors. Read more and download plugins at <https://editorconfig.org>. All commits must include a __Signed-off-by__ trailer at the end of each commit message to indicate that the contributor agrees to the Developer Certificate of Origin.
-For additional details, please refer to the blog post [Hello DCO, Goodbye CLA: Simplifying Contributions to Spring](https://spring.io/blog/2025/01/06/hello-dco-goodbye-cla-simplifying-contributions-to-spring).
+---
 
-## License
+## Autoscaling
 
-The Spring PetClinic sample application is released under version 2.0 of the [Apache License](https://www.apache.org/licenses/LICENSE-2.0).
+The platform uses Kubernetes Horizontal Pod Autoscaling.
+
+The HPA monitors CPU utilization and adjusts the number of application replicas within configured limits.
+
+Example configuration:
+
+```text
+Minimum replicas: 2
+Maximum replicas: 5
+Target CPU: 60%
+```
+
+For the constrained Azure lab environment, replica counts were later adjusted to account for available node capacity.
+
+---
+
+## Availability Controls
+
+A PodDisruptionBudget is used to control voluntary disruption of application replicas.
+
+This helps demonstrate how Kubernetes availability requirements can be defined independently from the application Deployment.
+
+---
+
+## Monitoring and Observability
+
+The monitoring platform uses `kube-prometheus-stack`.
+
+Core components include:
+
+- Prometheus
+- Grafana
+- Prometheus Operator
+- node-exporter
+- kube-state-metrics
+- Alertmanager
+
+Spring PetClinic exposes metrics using:
+
+- Spring Boot Actuator
+- Micrometer
+- Prometheus registry
+
+Application metrics are available through:
+
+```text
+/actuator/prometheus
+```
+
+Prometheus collects the metrics and Grafana is used to visualize application and Kubernetes behavior.
+
+---
+
+## Azure Key Vault
+
+Application secrets are stored in Azure Key Vault.
+
+The integration uses:
+
+- Azure Key Vault
+- Microsoft Entra Workload Identity
+- User-assigned managed identity
+- Federated identity credentials
+- Azure RBAC
+- Secrets Store CSI Driver
+
+The application can access Key Vault without storing an Azure client password in Kubernetes or Git.
+
+---
+
+## Workload Identity
+
+PetClinic uses a Kubernetes ServiceAccount linked to an Azure user-assigned identity.
+
+```text
+PetClinic Pod
+      ↓
+Kubernetes ServiceAccount
+      ↓
+AKS Workload Identity
+      ↓
+Federated Identity
+      ↓
+Azure RBAC
+      ↓
+Azure Key Vault
+```
+
+This provides passwordless authentication between the application workload and Azure.
+
+---
+
+## Key Engineering Challenges
+
+### AKS Regional VM Availability
+
+The original AKS configuration used a VM size that was unavailable in the selected Azure region.
+
+The deployment had to be adapted based on the VM sizes available in Canada Central.
+
+This demonstrated the importance of designing infrastructure around regional cloud constraints rather than assuming every SKU is available everywhere.
+
+---
+
+### Azure vCPU Quota
+
+The subscription later reached its regional vCPU quota.
+
+This prevented the AKS node pool from being expanded.
+
+Rather than adding more compute, the environment was optimized around the available capacity.
+
+Adjustments included:
+
+- Reducing application replicas
+- Reducing monitoring components
+- Reducing Argo CD footprint
+- Changing rollout strategy
+- Tracking pod density
+
+---
+
+### Kubernetes Pod Density
+
+The single AKS node supported a maximum of 30 pods.
+
+As additional platform components were installed, the cluster reached:
+
+```text
+30 / 30 pods
+```
+
+This created real scheduling constraints.
+
+The environment was adapted by identifying optional workloads and reducing their replicas while retaining core application functionality.
+
+---
+
+### Rolling Update Capacity
+
+The original Deployment used:
+
+```yaml
+maxUnavailable: 0
+maxSurge: 1
+```
+
+This required one extra pod during deployment.
+
+At maximum node capacity, Kubernetes could not schedule that additional pod.
+
+The rollout strategy was changed to:
+
+```yaml
+maxUnavailable: 1
+maxSurge: 0
+```
+
+This allows Kubernetes to remove the old pod before creating the replacement.
+
+This is documented as a lab-specific trade-off rather than the preferred production configuration.
+
+---
+
+### ACR Authentication
+
+AKS initially failed to authenticate correctly with Azure Container Registry.
+
+Azure RBAC and ACR role assignments were corrected so the cluster could retrieve application images.
+
+---
+
+### ARM64 Image Compatibility
+
+The application initially entered `CrashLoopBackOff` because the container image architecture did not match the AKS node architecture.
+
+The image pipeline was redesigned for ARM64 and later multi-architecture support.
+
+---
+
+### Azure Provider Registration
+
+Several Azure services required resource providers to be registered before Terraform could provision resources.
+
+Examples included:
+
+```text
+Microsoft.ContainerRegistry
+Microsoft.ContainerService
+Microsoft.KeyVault
+```
+
+Provider registration issues were diagnosed and resolved before continuing infrastructure provisioning.
+
+---
+
+### Git Bash Path Conversion
+
+Because the development environment used Windows Git Bash, Linux-style arguments were occasionally rewritten into Windows paths.
+
+For commands that needed literal Linux paths, the environment variable:
+
+```bash
+MSYS_NO_PATHCONV=1
+```
+
+was used to prevent path conversion.
+
+---
+
+## Repository Structure
+
+```text
+spring-petclinic-cloud-platform/
+│
+├── .github/
+│   └── workflows/
+│       ├── maven-build.yml
+│       └── azure-cicd.yml
+│
+├── terraform/
+│   └── azure/
+│       ├── aks.tf
+│       ├── acr.tf
+│       ├── network.tf
+│       ├── keyvault.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       └── providers.tf
+│
+├── kubernetes/
+│
+├── Dockerfile
+├── pom.xml
+├── src/
+│
+└── README.md
+```
+
+---
+
+## Technology Stack
+
+| Area | Technology |
+|---|---|
+| Cloud | Microsoft Azure |
+| Infrastructure as Code | Terraform |
+| Kubernetes | Azure Kubernetes Service |
+| Registry | Azure Container Registry |
+| Containers | Docker / Docker Buildx |
+| CI | GitHub Actions |
+| Build | Maven |
+| Application | Java / Spring Boot |
+| Routing | Gateway API / Istio |
+| Monitoring | Prometheus / Grafana |
+| Metrics | Spring Boot Actuator / Micrometer |
+| Secrets | Azure Key Vault |
+| Authentication | OIDC / Workload Identity |
+| Authorization | Azure RBAC |
+| Security Scanning | Trivy |
+| Kubernetes Packaging | Helm |
+
+---
+
+## Related GitOps Project
+
+Continuous delivery and Kubernetes desired state are maintained separately in:
+
+**Spring PetClinic GitOps Platform**
+
+https://github.com/Techy-T/spring-petclinic-gitops
+
+That repository adds:
+
+- Argo CD
+- Helm-based GitOps
+- Automated reconciliation
+- Self-healing
+- Dev → Staging → Production promotion
+- Git-driven Kubernetes state
+- GitOps-based secrets and monitoring configuration
+
+The separation demonstrates a clear architectural boundary between:
+
+```text
+Application + Infrastructure
+```
+
+and:
+
+```text
+Kubernetes Desired State + Continuous Delivery
+```
+
+---
+
+## Project Outcome
+
+The completed project provides a cloud platform spanning:
+
+```text
+Terraform
+   ↓
+Azure Infrastructure
+   ↓
+AKS + ACR
+   ↓
+GitHub Actions
+   ↓
+Multi-Architecture Containers
+   ↓
+Kubernetes Deployment
+   ↓
+Gateway Routing
+   ↓
+Autoscaling
+   ↓
+Prometheus / Grafana
+   ↓
+Azure Key Vault
+```
+
+The project demonstrates practical experience across **Azure, Kubernetes, Terraform, Docker, GitHub Actions, networking, observability, cloud security, identity, troubleshooting, and cloud architecture**.
+
+---
+
+## Status
+
+**Completed ✅**
+
+This repository represents the Azure infrastructure, CI, and Kubernetes platform layer.
+
+The companion GitOps repository builds on this foundation with Argo CD, Helm, immutable environment promotion, self-healing, and Git-driven continuous delivery.
